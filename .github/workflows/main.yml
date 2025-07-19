@@ -1,0 +1,62 @@
+name: 自动更新
+on:
+  workflow_dispatch: null
+  schedule:
+    - cron: "0 16 * * *"
+  push:
+   branches: master
+   paths-ignore:
+   - .github
+env:
+  brck: https://github.com/linshenkx/prompt-optimizer
+  fz: ${{ github.ref_name }}
+permissions:
+  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  zdgx:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '自动更新' )
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.pat }}
+      - name: 设置 Git 远程为 PAT 授权
+        run:  git remote set-url origin https://${{ github.repository_owner }}:${{ secrets.pat }}@github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}.git
+      - name: 配置 Git 用户信息
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: 备份 main.yml 文件
+        run:  cp .github/workflows/main.yml /tmp/main.yml
+      - name: 删除 .github 目录下除 workflows 外的所有内容
+        run:  find .github -mindepth 1 ! -path ".github/workflows" ! -path ".github/workflows/*" -exec rm -rf {} +
+      - name: 删除 workflows 目录中除 main.yml 外的所有内容
+        run:  find .github/workflows/ -mindepth 1 ! -name "main.yml" -exec rm -rf {} +
+      - name: 删除 .cursor 目录所有内容
+        run: rm -rf .cursor || true
+      - name: 添加上游仓库并获取最新代码
+        run: |
+          git remote add upstream ${{ env.brck }}.git
+          git fetch upstream
+      - name: 强制同步上游 main 分支
+        run:  git reset --hard upstream/${{ env.fz }}
+      - name: 还原 main.yml 到 workflows
+        run: |
+          mkdir -p .github/workflows
+          cp /tmp/main.yml .github/workflows/main.yml
+      - name: 删除 .github 目录下除 workflows 外的所有内容
+        run:  find .github -mindepth 1 ! -path ".github/workflows" ! -path ".github/workflows/*" -exec rm -rf {} +
+      - name: 删除 workflows 中除 main.yml 外的所有内容
+        run:  find .github/workflows/ -mindepth 1 ! -name "main.yml" -exec rm -rf {} +
+      - name: 删除 .cursor 目录所有内容
+        run: rm -rf .cursor || true
+      - name: 提交并推送清理后的内容
+        run: |
+          git add .
+          git commit -m "自动更新" || true
+          git push origin ${{ env.fz }} --force
